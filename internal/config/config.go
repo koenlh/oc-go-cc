@@ -8,10 +8,36 @@ type Config struct {
 	APIKey     string                   `json:"api_key"`
 	Host       string                   `json:"host"`
 	Port       int                      `json:"port"`
+	ClaudeCode ClaudeCodeConfig         `json:"claude_code,omitempty"`
 	Models     map[string]ModelConfig   `json:"models"`
 	Fallbacks  map[string][]ModelConfig `json:"fallbacks"`
 	OpenCodeGo OpenCodeGoConfig         `json:"opencode_go"`
 	Logging    LoggingConfig            `json:"logging"`
+}
+
+// ClaudeCategory identifies the Claude Code model tier requested by the client.
+type ClaudeCategory string
+
+const (
+	ClaudeCategoryHaiku  ClaudeCategory = "haiku"
+	ClaudeCategorySonnet ClaudeCategory = "sonnet"
+	ClaudeCategoryOpus   ClaudeCategory = "opus"
+)
+
+// ClaudeCodeConfig maps Claude Code model categories to OpenCode Go models.
+type ClaudeCodeConfig struct {
+	Models    map[string]ModelConfig   `json:"models,omitempty"`
+	Fallbacks map[string][]ModelConfig `json:"fallbacks,omitempty"`
+}
+
+// IsValidClaudeCategory returns true for supported Claude Code model categories.
+func IsValidClaudeCategory(category string) bool {
+	switch ClaudeCategory(category) {
+	case ClaudeCategoryHaiku, ClaudeCategorySonnet, ClaudeCategoryOpus:
+		return true
+	default:
+		return false
+	}
 }
 
 // ModelConfig defines routing rules for a specific model.

@@ -168,6 +168,115 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadClaudeCodeConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	cfgJSON := `{
+		"api_key": "test-key",
+		"claude_code": {
+			"models": {
+				"haiku": {"provider": "opencode-go", "model_id": "qwen3.5-plus"},
+				"sonnet": {"provider": "opencode-go", "model_id": "kimi-k2.6"},
+				"opus": {"provider": "opencode-go", "model_id": "deepseek-v4-pro"}
+			},
+			"fallbacks": {
+				"sonnet": [
+					{"provider": "opencode-go", "model_id": "glm-5"}
+				]
+			}
+		}
+	}`
+
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	_ = os.Setenv("OC_GO_CC_CONFIG", cfgPath)
+	defer func() { _ = os.Unsetenv("OC_GO_CC_CONFIG") }()
+
+	oldAPIKey := os.Getenv("OC_GO_CC_API_KEY")
+	_ = os.Unsetenv("OC_GO_CC_API_KEY")
+	defer func() { _ = os.Setenv("OC_GO_CC_API_KEY", oldAPIKey) }()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got := cfg.ClaudeCode.Models["haiku"].ModelID; got != "qwen3.5-plus" {
+		t.Errorf("ClaudeCode.Models[haiku].ModelID = %q, want %q", got, "qwen3.5-plus")
+	}
+	if got := cfg.ClaudeCode.Models["sonnet"].ModelID; got != "kimi-k2.6" {
+		t.Errorf("ClaudeCode.Models[sonnet].ModelID = %q, want %q", got, "kimi-k2.6")
+	}
+	if got := len(cfg.ClaudeCode.Fallbacks["sonnet"]); got != 1 {
+		t.Errorf("len(ClaudeCode.Fallbacks[sonnet]) = %d, want 1", got)
+	}
+}
+
+func TestLoadRejectsInvalidClaudeCategory(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	cfgJSON := `{
+		"api_key": "test-key",
+		"claude_code": {
+			"models": {
+				"ultra": {"provider": "opencode-go", "model_id": "glm-5.1"}
+			}
+		}
+	}`
+
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	_ = os.Setenv("OC_GO_CC_CONFIG", cfgPath)
+	defer func() { _ = os.Unsetenv("OC_GO_CC_CONFIG") }()
+
+	oldAPIKey := os.Getenv("OC_GO_CC_API_KEY")
+	_ = os.Unsetenv("OC_GO_CC_API_KEY")
+	defer func() { _ = os.Setenv("OC_GO_CC_API_KEY", oldAPIKey) }()
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected error for invalid claude_code category, got nil")
+	}
+}
+
+func TestLoadRejectsClaudeFallbackWithoutPrimary(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	cfgJSON := `{
+		"api_key": "test-key",
+		"claude_code": {
+			"fallbacks": {
+				"opus": [
+					{"provider": "opencode-go", "model_id": "deepseek-v4-pro"}
+				]
+			}
+		}
+	}`
+
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	_ = os.Setenv("OC_GO_CC_CONFIG", cfgPath)
+	defer func() { _ = os.Unsetenv("OC_GO_CC_CONFIG") }()
+
+	oldAPIKey := os.Getenv("OC_GO_CC_API_KEY")
+	_ = os.Unsetenv("OC_GO_CC_API_KEY")
+	defer func() { _ = os.Setenv("OC_GO_CC_API_KEY", oldAPIKey) }()
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected error for claude_code fallback without primary model, got nil")
+	}
+}
+
 func TestInterpolateEnvVars(t *testing.T) {
 	_ = os.Setenv("TEST_SECRET", "my-secret-value")
 	defer func() { _ = os.Unsetenv("TEST_SECRET") }()
@@ -181,22 +290,10 @@ func TestInterpolateEnvVars(t *testing.T) {
 	}
 }
 
-func TestExpandHome(t *testing.T) {
-	home, _ := os.UserHomeDir()
-
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"~/some/path", filepath.Join(home, "some/path")},
-		{"/absolute/path", "/absolute/path"},
-		{"relative/path", "relative/path"},
-	}
-
-	for _, tt := range tests {
-		got := expandHome(tt.input)
-		if got != tt.want {
-			t.Errorf("expandHome(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+func TestDefaultConfigPath(t *testing.T) {
+	got := DefaultConfigPath()
+	want := filepath.Join(DefaultConfigDir(), "config.json")
+	if got != want {
+		t.Errorf("DefaultConfigPath() = %q, want %q", got, want)
 	}
 }

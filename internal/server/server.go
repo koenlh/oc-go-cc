@@ -42,7 +42,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	// Create metrics
 	metrics := metrics.New()
 
-	openCodeClient := client.NewOpenCodeClient(cfg.OpenCodeGo, cfg.APIKey)
+	openCodeClient := client.NewOpenCodeClient(cfg.OpenCodeGo, cfg.APIKey, cfg.Logging)
 	modelRouter := router.NewModelRouter(cfg)
 	fallbackHandler := router.NewFallbackHandler(logger, 3, 30*time.Second)
 

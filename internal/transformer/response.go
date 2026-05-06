@@ -4,6 +4,7 @@ package transformer
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"oc-go-cc/pkg/types"
 )
@@ -71,11 +72,7 @@ func (t *ResponseTransformer) transformContent(msg types.ChatMessage) ([]types.C
 
 	// Handle tool calls — each becomes a tool_use content block.
 	for _, tc := range msg.ToolCalls {
-		// Arguments come as a JSON string from OpenAI, pass as raw JSON
-		inputJSON := json.RawMessage(`{}`)
-		if tc.Function.Arguments != "" {
-			inputJSON = json.RawMessage(tc.Function.Arguments)
-		}
+		inputJSON := sanitizeToolArguments(tc.Function.Arguments)
 
 		blocks = append(blocks, types.ContentBlock{
 			Type:  "tool_use",
@@ -102,6 +99,17 @@ func (t *ResponseTransformer) transformContent(msg types.ChatMessage) ([]types.C
 	}
 
 	return blocks, nil
+}
+
+func sanitizeToolArguments(arguments string) json.RawMessage {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" {
+		return json.RawMessage(`{}`)
+	}
+	if json.Valid([]byte(trimmed)) {
+		return json.RawMessage(trimmed)
+	}
+	return json.RawMessage(`{}`)
 }
 
 // mapFinishReason maps OpenAI finish reasons to Anthropic stop reasons.

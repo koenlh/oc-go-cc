@@ -286,8 +286,7 @@ func modelsCmd() *cobra.Command {
 
 // getConfigDir returns the default configuration directory path.
 func getConfigDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "oc-go-cc")
+	return config.DefaultConfigDir()
 }
 
 // autostartCmd returns the command to manage autostart on login.
@@ -360,6 +359,45 @@ func getDefaultConfig() string {
   "api_key": "${OC_GO_CC_API_KEY}",
   "host": "127.0.0.1",
   "port": 3456,
+	"claude_code": {
+		"models": {
+			"haiku": {
+				"provider": "opencode-go",
+				"model_id": "qwen3.5-plus",
+				"temperature": 0.5,
+				"max_tokens": 2048
+			},
+			"sonnet": {
+				"provider": "opencode-go",
+				"model_id": "kimi-k2.6",
+				"temperature": 0.7,
+				"max_tokens": 4096
+			},
+			"opus": {
+				"provider": "opencode-go",
+				"model_id": "deepseek-v4-pro",
+				"temperature": 0.7,
+				"max_tokens": 8192,
+				"reasoning_effort": "max",
+				"thinking": {
+					"type": "enabled"
+				}
+			}
+		},
+		"fallbacks": {
+			"haiku": [
+				{ "provider": "opencode-go", "model_id": "qwen3.6-plus" }
+			],
+			"sonnet": [
+				{ "provider": "opencode-go", "model_id": "glm-5" },
+				{ "provider": "opencode-go", "model_id": "mimo-v2-pro" }
+			],
+			"opus": [
+				{ "provider": "opencode-go", "model_id": "glm-5.1" },
+				{ "provider": "opencode-go", "model_id": "minimax-m2.7" }
+			]
+		}
+	},
   "models": {
     "background": {
       "provider": "opencode-go",

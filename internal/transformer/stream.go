@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -76,6 +77,8 @@ func (h *StreamHandler) ProxyStream(
 
 	// Read in larger chunks for efficiency, then parse lines
 	readBuf := make([]byte, 4096)
+	startedAt := time.Now()
+	loggedFirstRead := false
 
 	for {
 		// Check if client disconnected
@@ -88,6 +91,14 @@ func (h *StreamHandler) ProxyStream(
 		// Read chunk from upstream
 		n, err := openaiResp.Read(readBuf)
 		if n > 0 {
+			if !loggedFirstRead {
+				loggedFirstRead = true
+				slog.Debug("received first upstream stream bytes",
+					"model", originalModel,
+					"ttfb", time.Since(startedAt),
+					"bytes", n,
+				)
+			}
 			// Process bytes immediately
 			for i := 0; i < n; i++ {
 				b := readBuf[i]

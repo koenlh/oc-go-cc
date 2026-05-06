@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"oc-go-cc/internal/client"
 	"oc-go-cc/internal/config"
+	"oc-go-cc/internal/debuglog"
 	"oc-go-cc/internal/metrics"
 	"oc-go-cc/internal/middleware"
 	"oc-go-cc/internal/router"
@@ -41,28 +43,67 @@ type MessagesHandler struct {
 // responseWriter wraps http.ResponseWriter to track if headers were written.
 type responseWriter struct {
 	http.ResponseWriter
+	mu          sync.Mutex
 	wroteHeader bool
 }
 
-func (w *responseWriter) WriteHeader(code int) {
+const defaultStreamAttemptTimeout = 5 * time.Minute
+
+func (w *responseWriter) writeHeaderLocked(code int) {
 	if !w.wroteHeader {
 		w.wroteHeader = true
 		w.ResponseWriter.WriteHeader(code)
 	}
 }
 
+func (w *responseWriter) WriteHeader(code int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.writeHeaderLocked(code)
+}
+
 func (w *responseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.writeHeaderLocked(http.StatusOK)
 	return w.ResponseWriter.Write(b)
 }
 
 // Flush implements http.Flusher for SSE streaming support.
 func (w *responseWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func (w *responseWriter) HasWrittenHeader() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.wroteHeader
+}
+
+func (h *MessagesHandler) streamAttemptTimeout() time.Duration {
+	timeout := time.Duration(h.config.OpenCodeGo.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		return defaultStreamAttemptTimeout
+	}
+	return timeout
+}
+
+func (h *MessagesHandler) shouldLogPayloads() bool {
+	if h == nil || h.config == nil {
+		return false
+	}
+	return h.config.Logging.Requests && h.logger.Enabled(context.Background(), slog.LevelDebug)
+}
+
+func optionalFloat64Value(value *float64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 // NewMessagesHandler creates a new messages handler.
@@ -120,6 +161,13 @@ func (h *MessagesHandler) HandleMessages(w http.ResponseWriter, r *http.Request)
 		h.sendError(w, http.StatusBadRequest, "invalid request body", err)
 		return
 	}
+	if h.shouldLogPayloads() {
+		h.logger.Debug("received anthropic request body",
+			"request_id", requestID,
+			"bytes", len(rawBody),
+			"preview", debuglog.PreviewBytes(rawBody),
+		)
+	}
 
 	// Deduplicate - skip duplicate requests
 	if _, ok := h.requestDedup.TryAcquire(rawBody); !ok {
@@ -152,6 +200,16 @@ func (h *MessagesHandler) HandleMessages(w http.ResponseWriter, r *http.Request)
 		"tools", len(anthropicReq.Tools),
 		"max_tokens", anthropicReq.MaxTokens,
 	)
+	h.logger.Debug("parsed request parameters",
+		"request_id", requestID,
+		"model", anthropicReq.Model,
+		"streaming", isStreaming,
+		"max_tokens", anthropicReq.MaxTokens,
+		"temperature", optionalFloat64Value(anthropicReq.Temperature),
+		"temperature_present", anthropicReq.Temperature != nil,
+		"top_p", optionalFloat64Value(anthropicReq.TopP),
+		"top_p_present", anthropicReq.TopP != nil,
+	)
 
 	// Build message content for routing and token counting.
 	var routerMessages []router.MessageContent
@@ -183,10 +241,10 @@ func (h *MessagesHandler) HandleMessages(w http.ResponseWriter, r *http.Request)
 	// For streaming, use faster models to minimize TTFT (time-to-first-token)
 	var routeResult router.RouteResult
 	if isStreaming {
-		routeResult = h.modelRouter.RouteForStreaming(routerMessages, tokenCount)
+		routeResult = h.modelRouter.RouteForStreamingWithRequestModel(anthropicReq.Model, routerMessages, tokenCount)
 	} else {
 		var err error
-		routeResult, err = h.modelRouter.Route(routerMessages, tokenCount)
+		routeResult, err = h.modelRouter.RouteWithRequestModel(anthropicReq.Model, routerMessages, tokenCount)
 		if err != nil {
 			h.sendError(w, http.StatusInternalServerError, "routing failed", err)
 			return
@@ -194,8 +252,12 @@ func (h *MessagesHandler) HandleMessages(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.logger.Info("routing request",
+		"selection_mode", routeResult.SelectionMode,
+		"requested_model", routeResult.RequestedModel,
+		"requested_category", routeResult.RequestedCategory,
 		"scenario", routeResult.Scenario,
 		"model", routeResult.Primary.ModelID,
+		"reason", routeResult.Reason,
 		"tokens", tokenCount,
 	)
 
@@ -228,14 +290,12 @@ func (h *MessagesHandler) handleStreaming(
 
 	// Set SSE headers immediately so Claude Code knows the stream is alive.
 	// This prevents client-side timeouts before we even start sending data.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+	rw.Header().Set("X-Accel-Buffering", "no")
+	rw.WriteHeader(http.StatusOK)
+	rw.Flush()
 
 	// Start heartbeat to keep connection alive while waiting for upstream.
 	// Claude Code times out after ~6 seconds of no data, so we send pings every 3 seconds
@@ -249,10 +309,8 @@ func (h *MessagesHandler) handleStreaming(
 			select {
 			case <-ticker.C:
 				// Send SSE comment (ignored by client but keeps connection alive)
-				_, _ = fmt.Fprintf(w, ":keepalive\n\n")
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
+				_, _ = fmt.Fprintf(rw, ":keepalive\n\n")
+				rw.Flush()
 			case <-heartbeatDone:
 				return
 			case <-clientCtx.Done():
@@ -278,7 +336,11 @@ func (h *MessagesHandler) handleStreaming(
 
 		// Create a fresh context with timeout for THIS attempt only.
 		// Don't use r.Context() directly - it gets canceled when Claude Code retries.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), h.streamAttemptTimeout())
+		h.logger.Debug("streaming attempt configured",
+			"model", model.ModelID,
+			"timeout", h.streamAttemptTimeout(),
+		)
 
 		// Check if this is an Anthropic-native model (MiniMax)
 		if client.IsAnthropicModel(model.ModelID) {
@@ -350,7 +412,7 @@ func (h *MessagesHandler) handleStreaming(
 
 	// All models failed
 	h.metrics.RecordFailure()
-	if !rw.wroteHeader {
+	if !rw.HasWrittenHeader() {
 		h.sendError(w, http.StatusBadGateway, "all streaming models failed", nil)
 	} else {
 		// Headers already sent - send error as SSE event
@@ -396,7 +458,8 @@ func (h *MessagesHandler) handleAnthropicStreaming(
 	// Debug: Log what we're sending
 	h.logger.Debug("sending anthropic streaming request",
 		"model_id", modelID,
-		"body_preview", string(rawBody)[:min(len(rawBody), 200)])
+		"bytes", len(rawBody),
+		"body_preview", debuglog.PreviewBytes(rawBody))
 
 	// Send raw Anthropic request to Anthropic endpoint
 	// Use ctx so cancellation propagates when client disconnects
@@ -492,8 +555,10 @@ func (h *MessagesHandler) executeAnthropicRequest(
 	rawBody json.RawMessage,
 	model config.ModelConfig,
 ) ([]byte, error) {
+	modelBody := replaceModelInRawBody(rawBody, model.ModelID)
+
 	// Send raw Anthropic request to Anthropic endpoint
-	resp, err := h.client.SendAnthropicRequest(ctx, rawBody, false)
+	resp, err := h.client.SendAnthropicRequest(ctx, modelBody, false)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic request failed: %w", err)
 	}
@@ -505,7 +570,13 @@ func (h *MessagesHandler) executeAnthropicRequest(
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	h.logger.Debug("anthropic response", "body", string(body))
+	if h.shouldLogPayloads() {
+		h.logger.Debug("anthropic response",
+			"model", model.ModelID,
+			"bytes", len(body),
+			"body_preview", debuglog.PreviewBytes(body),
+		)
+	}
 
 	return body, nil
 }
@@ -567,7 +638,7 @@ func (h *MessagesHandler) sendError(w http.ResponseWriter, statusCode int, messa
 	)
 
 	// Use the wrapped writer if available to prevent duplicate WriteHeader calls
-	if rw, ok := w.(*responseWriter); ok && rw.wroteHeader {
+	if rw, ok := w.(*responseWriter); ok && rw.HasWrittenHeader() {
 		return
 	}
 

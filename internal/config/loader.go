@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 )
 
 const (
-	defaultConfigPath       = "~/.config/oc-go-cc/config.json"
 	defaultHost             = "127.0.0.1"
 	defaultPort             = 3456
 	defaultBaseURL          = "https://opencode.ai/zen/go/v1/chat/completions"
@@ -26,7 +23,7 @@ var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}`)
 // Load reads configuration from a JSON file and applies environment variable overrides.
 // Config path resolution:
 //  1. OC_GO_CC_CONFIG env var (explicit override)
-//  2. ~/.config/oc-go-cc/config.json (default)
+//  2. platform default config path (default)
 func Load() (*Config, error) {
 	configPath := resolveConfigPath()
 
@@ -50,19 +47,7 @@ func resolveConfigPath() string {
 	if path := os.Getenv("OC_GO_CC_CONFIG"); path != "" {
 		return path
 	}
-	return expandHome(defaultConfigPath)
-}
-
-// expandHome replaces a leading ~ with the user's home directory.
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[2:])
-	}
-	return path
+	return DefaultConfigPath()
 }
 
 // loadJSON reads and parses the configuration file.
@@ -144,5 +129,35 @@ func validate(cfg *Config) error {
 	if cfg.APIKey == "" {
 		return fmt.Errorf("api_key is required (set via config file or OC_GO_CC_API_KEY env var)")
 	}
+	if err := validateClaudeCodeConfig(cfg.ClaudeCode); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateClaudeCodeConfig(cfg ClaudeCodeConfig) error {
+	for category, model := range cfg.Models {
+		if !IsValidClaudeCategory(category) {
+			return fmt.Errorf("claude_code.models.%s is not supported (use haiku, sonnet, or opus)", category)
+		}
+		if model.ModelID == "" {
+			return fmt.Errorf("claude_code.models.%s.model_id is required", category)
+		}
+	}
+
+	for category, fallbacks := range cfg.Fallbacks {
+		if !IsValidClaudeCategory(category) {
+			return fmt.Errorf("claude_code.fallbacks.%s is not supported (use haiku, sonnet, or opus)", category)
+		}
+		if _, ok := cfg.Models[category]; !ok {
+			return fmt.Errorf("claude_code.fallbacks.%s requires claude_code.models.%s to be configured", category, category)
+		}
+		for index, model := range fallbacks {
+			if model.ModelID == "" {
+				return fmt.Errorf("claude_code.fallbacks.%s[%d].model_id is required", category, index)
+			}
+		}
+	}
+
 	return nil
 }

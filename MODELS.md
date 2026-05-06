@@ -48,6 +48,37 @@ For Claude Code and OpenCode-style agent workflows, DeepSeek V4 supports max thi
 
 Use `deepseek-v4-pro` for default, complex, thinking, and long-context routing. Use `deepseek-v4-flash` for fast, background, or subagent-style workloads.
 
+## Claude Code Category Mapping
+
+When the incoming request model already matches a full OpenCode Go model ID such as `deepseek-v4-pro`, `qwen3.5-plus`, or `minimax-m2.7`, `oc-go-cc` now prefers that full model name directly before any category or scenario heuristics run.
+
+Otherwise, when `claude_code.models.haiku`, `claude_code.models.sonnet`, and `claude_code.models.opus` are configured, `oc-go-cc` maps the incoming Claude request model name directly to those OpenCode Go models before any scenario heuristics run. This is the closest behavior to Claude Code's tier switch: `haiku` requests get the `haiku` mapping, `sonnet` requests get the `sonnet` mapping, and `opus` requests get the `opus` mapping.
+
+If the incoming request model does not match a full model name or one of those category names, `oc-go-cc` falls back to the scenario router described below.
+
+```json
+{
+  "claude_code": {
+    "models": {
+      "haiku": { "model_id": "qwen3.5-plus" },
+      "sonnet": { "model_id": "kimi-k2.6" },
+      "opus": {
+        "model_id": "deepseek-v4-pro",
+        "reasoning_effort": "max",
+        "thinking": { "type": "enabled" }
+      }
+    },
+    "fallbacks": {
+      "haiku": [{ "model_id": "qwen3.6-plus" }],
+      "sonnet": [{ "model_id": "glm-5" }],
+      "opus": [{ "model_id": "glm-5.1" }]
+    }
+  }
+}
+```
+
+This mapping is used for both streaming and non-streaming requests. Scenario routing remains available as a fallback for non-Claude or unrecognized model names.
+
 ## Cost-Conscious Routing Strategy
 
 ### Default to Cheap, Upgrade When Necessary

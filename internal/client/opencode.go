@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"oc-go-cc/internal/config"
+	"oc-go-cc/internal/debuglog"
 	"oc-go-cc/pkg/types"
 )
 
@@ -19,6 +21,22 @@ type OpenCodeClient struct {
 	openAIConfig    EndpointConfig
 	anthropicConfig EndpointConfig
 	httpClient      *http.Client
+	logger          *slog.Logger
+	logRequests     bool
+}
+
+func optionalFloat64Value(value *float64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func optionalIntValue(value *int) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 // EndpointConfig holds configuration for a specific API endpoint.
@@ -28,7 +46,7 @@ type EndpointConfig struct {
 }
 
 // NewOpenCodeClient creates a new OpenCode Go client.
-func NewOpenCodeClient(cfg config.OpenCodeGoConfig, apiKey string) *OpenCodeClient {
+func NewOpenCodeClient(cfg config.OpenCodeGoConfig, apiKey string, logging config.LoggingConfig) *OpenCodeClient {
 	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
 	if timeout == 0 {
 		timeout = 5 * time.Minute
@@ -56,7 +74,13 @@ func NewOpenCodeClient(cfg config.OpenCodeGoConfig, apiKey string) *OpenCodeClie
 			Timeout:   timeout,
 			Transport: transport,
 		},
+		logger:      slog.Default(),
+		logRequests: logging.Requests,
 	}
+}
+
+func (c *OpenCodeClient) shouldLogPayloads() bool {
+	return c != nil && c.logRequests && c.logger.Enabled(context.Background(), slog.LevelDebug)
 }
 
 // IsAnthropicModel returns true if the model requires the Anthropic endpoint.
@@ -89,6 +113,19 @@ func (c *OpenCodeClient) ChatCompletion(
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	if c.shouldLogPayloads() {
+		c.logger.Debug("sending upstream openai request",
+			"model", modelID,
+			"endpoint", endpoint.BaseURL,
+			"stream", req.Stream != nil && *req.Stream,
+			"outbound_temperature", optionalFloat64Value(req.Temperature),
+			"outbound_temperature_present", req.Temperature != nil,
+			"outbound_max_tokens", optionalIntValue(req.MaxTokens),
+			"outbound_max_tokens_present", req.MaxTokens != nil,
+			"bytes", len(body),
+			"preview", debuglog.PreviewBytes(body),
+		)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.BaseURL, bytes.NewReader(body))
@@ -139,6 +176,13 @@ func (c *OpenCodeClient) ChatCompletionNonStreaming(
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if c.shouldLogPayloads() {
+		c.logger.Debug("received upstream openai response",
+			"model", modelID,
+			"bytes", len(body),
+			"preview", debuglog.PreviewBytes(body),
+		)
 	}
 
 	var chatResp types.ChatCompletionResponse

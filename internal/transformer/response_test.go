@@ -1,6 +1,7 @@
 package transformer
 
 import (
+	"encoding/json"
 	"testing"
 
 	"oc-go-cc/pkg/types"
@@ -119,6 +120,58 @@ func TestTransformResponsePreservesReasoningContentWithToolCalls(t *testing.T) {
 
 	if got, want := anthropicResp.StopReason, "tool_use"; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+}
+
+func TestTransformResponseSanitizesInvalidToolArguments(t *testing.T) {
+	transformer := NewResponseTransformer()
+
+	resp := &types.ChatCompletionResponse{
+		ID:      "chatcmpl_bad_args",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   "deepseek-v4-pro",
+		Choices: []types.Choice{
+			{
+				Index: 0,
+				Message: types.ChatMessage{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []types.ToolCall{
+						{
+							ID:   "call_bad",
+							Type: "function",
+							Function: types.FunctionCall{
+								Name:      "search_docs",
+								Arguments: `{"query":"unterminated"`,
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+		Usage: types.UsageInfo{
+			PromptTokens:     12,
+			CompletionTokens: 7,
+			TotalTokens:      19,
+		},
+	}
+
+	anthropicResp, err := transformer.TransformResponse(resp, "deepseek-v4-pro")
+	if err != nil {
+		t.Fatalf("TransformResponse() error = %v", err)
+	}
+
+	if got, want := anthropicResp.Content[0].Type, "tool_use"; got != want {
+		t.Fatalf("Content[0].Type = %q, want %q", got, want)
+	}
+	if got, want := string(anthropicResp.Content[0].Input), `{}`; got != want {
+		t.Fatalf("Content[0].Input = %s, want %s", got, want)
+	}
+
+	if _, err := json.Marshal(anthropicResp); err != nil {
+		t.Fatalf("json.Marshal(anthropicResp) error = %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"log/slog"
+	"oc-go-cc/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,15 +12,14 @@ import (
 
 const (
 	AppName     = "oc-go-cc"
-	ConfigDir   = ".config/oc-go-cc"
 	LaunchAgent = "com.opencode.oc-go-cc"
 )
 
 // Paths holds well-known directories and files for the app.
 type Paths struct {
-	ConfigDir  string // ~/.config/oc-go-cc
-	PIDFile    string // ~/.config/oc-go-cc/oc-go-cc.pid
-	LogFile    string // ~/.config/oc-go-cc/oc-go-cc.log
+	ConfigDir  string // platform-specific user config dir
+	PIDFile    string // platform-specific PID file path
+	LogFile    string // platform-specific log file path
 	PlistPath  string // ~/Library/LaunchAgents/com.opencode.oc-go-cc.plist
 	BinaryPath string // absolute path to the running executable
 }
@@ -37,7 +37,7 @@ func DefaultPaths() (*Paths, error) {
 	}
 	execPath = resolveExecutablePath(execPath)
 
-	configDir := filepath.Join(home, ConfigDir)
+	configDir := config.DefaultConfigDir()
 	return &Paths{
 		ConfigDir:  configDir,
 		PIDFile:    filepath.Join(configDir, AppName+".pid"),
@@ -47,7 +47,7 @@ func DefaultPaths() (*Paths, error) {
 	}, nil
 }
 
-// EnsureConfigDir creates ~/.config/oc-go-cc/ if it does not exist.
+// EnsureConfigDir creates the platform-specific config directory if it does not exist.
 func (p *Paths) EnsureConfigDir() error {
 	return os.MkdirAll(p.ConfigDir, 0755)
 }

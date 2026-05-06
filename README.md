@@ -65,7 +65,7 @@ sudo mv oc-go-cc /usr/local/bin/
 ### Requirements
 
 - An [OpenCode Go](https://opencode.ai/auth) subscription and API key
-- Go 1.21+ (only needed if building from source)
+- Go 1.25+ (only needed if building from source)
 
 ## Quick Start
 
@@ -75,7 +75,8 @@ sudo mv oc-go-cc /usr/local/bin/
 oc-go-cc init
 ```
 
-Creates a default config at `~/.config/oc-go-cc/config.json`. If the config already exists, it shows the path so you can edit it directly.
+Creates a default config at the platform default location. On Windows this is `%APPDATA%\oc-go-cc\config.json`; on macOS/Linux it is `~/.config/oc-go-cc/config.json`. If the config already exists, it shows the path so you can edit it directly.
+If Windows detects an existing legacy `~/.config/oc-go-cc` directory, it keeps using that directory for compatibility.
 
 ### 2. Set Your API Key
 
@@ -111,7 +112,7 @@ oc-go-cc serve --background
 oc-go-cc serve -b
 ```
 
-This starts the server as a background daemon and returns immediately. Logs are written to `~/.config/oc-go-cc/oc-go-cc.log`.
+This starts the server as a background daemon and returns immediately. Logs are written to the platform config directory. On Windows this is `%APPDATA%\oc-go-cc\oc-go-cc.log`; on macOS/Linux it is `~/.config/oc-go-cc/oc-go-cc.log`. If Windows detects an existing legacy `~/.config/oc-go-cc` directory, logs continue to use that directory for compatibility.
 
 #### Auto-start on Login
 
@@ -209,7 +210,11 @@ DeepSeek V4 thinking responses are returned as OpenAI `reasoning_content` and tr
 
 ### Config File
 
-Location: `~/.config/oc-go-cc/config.json`
+Location: platform default config path.
+
+- Windows: `%APPDATA%\oc-go-cc\config.json`
+- Windows compatibility: if `~/.config/oc-go-cc` already exists, `oc-go-cc` uses `~/.config/oc-go-cc/config.json` instead
+- macOS/Linux: `~/.config/oc-go-cc/config.json`
 
 Override with `OC_GO_CC_CONFIG` environment variable.
 
@@ -220,6 +225,44 @@ Override with `OC_GO_CC_CONFIG` environment variable.
   "api_key": "${OC_GO_CC_API_KEY}",
   "host": "127.0.0.1",
   "port": 3456,
+
+  "claude_code": {
+    "models": {
+      "haiku": {
+        "provider": "opencode-go",
+        "model_id": "qwen3.5-plus",
+        "temperature": 0.5,
+        "max_tokens": 2048
+      },
+      "sonnet": {
+        "provider": "opencode-go",
+        "model_id": "kimi-k2.6",
+        "temperature": 0.7,
+        "max_tokens": 4096
+      },
+      "opus": {
+        "provider": "opencode-go",
+        "model_id": "deepseek-v4-pro",
+        "temperature": 0.7,
+        "max_tokens": 8192,
+        "reasoning_effort": "max",
+        "thinking": {
+          "type": "enabled"
+        }
+      }
+    },
+    "fallbacks": {
+      "haiku": [{ "provider": "opencode-go", "model_id": "qwen3.6-plus" }],
+      "sonnet": [
+        { "provider": "opencode-go", "model_id": "glm-5" },
+        { "provider": "opencode-go", "model_id": "mimo-v2-pro" }
+      ],
+      "opus": [
+        { "provider": "opencode-go", "model_id": "glm-5.1" },
+        { "provider": "opencode-go", "model_id": "minimax-m2.7" }
+      ]
+    }
+  },
 
   "models": {
     "default": {
@@ -236,7 +279,7 @@ Override with `OC_GO_CC_CONFIG` environment variable.
     },
     "think": {
       "provider": "opencode-go",
-      "model_id": "glm-5.1",
+      "model_id": "glm-5",
       "temperature": 0.7,
       "max_tokens": 8192
     },
@@ -248,7 +291,7 @@ Override with `OC_GO_CC_CONFIG` environment variable.
     },
     "long_context": {
       "provider": "opencode-go",
-      "model_id": "minimax-m2.7",
+      "model_id": "minimax-m2.5",
       "temperature": 0.7,
       "max_tokens": 16384,
       "context_threshold": 80000
@@ -284,6 +327,7 @@ Override with `OC_GO_CC_CONFIG` environment variable.
 
   "opencode_go": {
     "base_url": "https://opencode.ai/zen/go/v1/chat/completions",
+    "anthropic_base_url": "https://opencode.ai/zen/go/v1/messages",
     "timeout_ms": 300000
   },
 
@@ -294,6 +338,8 @@ Override with `OC_GO_CC_CONFIG` environment variable.
 }
 ```
 
+`opencode_go.timeout_ms` applies to both non-streaming requests and each streaming upstream attempt. Increase it if slower reasoning models need longer to produce or finish a stream.
+
 ### Environment Variables
 
 Environment variables override config file values. Config values also support `${VAR}` interpolation.
@@ -301,7 +347,7 @@ Environment variables override config file values. Config values also support `$
 | Variable                | Description                                 | Default                                          |
 | ----------------------- | ------------------------------------------- | ------------------------------------------------ |
 | `OC_GO_CC_API_KEY`      | OpenCode Go API key (**required**)          | —                                                |
-| `OC_GO_CC_CONFIG`       | Custom config file path                     | `~/.config/oc-go-cc/config.json`                 |
+| `OC_GO_CC_CONFIG`       | Custom config file path                     | Windows: `%APPDATA%\oc-go-cc\config.json` by default, or `~/.config/oc-go-cc/config.json` when that legacy directory already exists; macOS/Linux: `~/.config/oc-go-cc/config.json` |
 | `OC_GO_CC_HOST`         | Proxy listen host                           | `127.0.0.1`                                      |
 | `OC_GO_CC_PORT`         | Proxy listen port                           | `3456`                                           |
 | `OC_GO_CC_OPENCODE_URL` | OpenCode Go API endpoint                    | `https://opencode.ai/zen/go/v1/chat/completions` |
@@ -309,11 +355,29 @@ Environment variables override config file values. Config values also support `$
 
 ### Model Routing
 
-The proxy automatically detects the type of request and routes to the appropriate model based on context size and content analysis:
+For Claude Code requests, routing now happens in three stages:
+
+1. If the incoming `model` already looks like a full OpenCode Go model ID such as `deepseek-v4-pro`, `qwen3.5-plus`, or `minimax-m2.7`, `oc-go-cc` now prefers that full model name directly before any category or scenario routing.
+2. If the incoming `model` contains `haiku`, `sonnet`, or `opus`, and `claude_code.models.<category>` is configured, `oc-go-cc` uses that mapped OpenCode Go model for both streaming and non-streaming requests.
+3. If neither a full model name nor a configured Claude category matches, the proxy falls back to the existing scenario router based on context size and content analysis.
+
+This makes CC Switch-style direct model names work naturally: if CC Switch sends `deepseek-v4-pro`, `oc-go-cc` will try `deepseek-v4-pro` first without requiring you to remap that name again inside `oc-go-cc`.
+
+#### Claude Category Mapping
+
+| Claude Category | Config Key                  | Suggested Default | Why                                              |
+| --------------- | --------------------------- | ----------------- | ------------------------------------------------ |
+| **Haiku**       | `claude_code.models.haiku`  | Qwen3.5 Plus      | Cheapest tier, good fit for lightweight requests |
+| **Sonnet**      | `claude_code.models.sonnet` | Kimi K2.6         | Balanced default for most coding work            |
+| **Opus**        | `claude_code.models.opus`   | DeepSeek V4 Pro   | Best fit for heavy reasoning and long context    |
+
+#### Scenario Fallback Routing
+
+When the incoming model name does not match a full model name or configured Claude category, the proxy uses the scenario router:
 
 | Scenario         | Trigger                                             | Model        | Why                                             |
 | ---------------- | --------------------------------------------------- | ------------ | ----------------------------------------------- |
-| **Long Context** | >80K tokens (configurable)                          | MiniMax M2.7 | 1M context window vs 128-256K for others        |
+| **Long Context** | >80K tokens (configurable)                          | MiniMax M2.5 | 1M context window vs 128-256K for others        |
 | **Complex**      | "architect", "refactor", "complex" in system prompt | GLM-5.1      | Best reasoning & architectural understanding    |
 | **Think**        | "think", "plan", "reason" in system prompt          | GLM-5        | Good reasoning, cheaper than GLM-5.1            |
 | **Background**   | "read file", "grep", "list directory"               | Qwen3.5 Plus | Cheapest (~10K req/5hr), perfect for simple ops |
@@ -321,18 +385,24 @@ The proxy automatically detects the type of request and routes to the appropriat
 
 **📖 See [MODELS.md](MODELS.md) for detailed model capabilities, costs, and routing recommendations.**
 
-DeepSeek V4 users can set any scenario model to `deepseek-v4-pro` or `deepseek-v4-flash`. For deterministic max thinking, add `reasoning_effort: "max"` and `thinking: {"type":"enabled"}` to that scenario's model config and fallback entries.
+DeepSeek V4 users can map `claude_code.models.opus` directly to `deepseek-v4-pro` or `deepseek-v4-flash`. For deterministic max thinking, add `reasoning_effort: "max"` and `thinking: {"type":"enabled"}` to that category mapping or any scenario model config.
 
 #### Routing in Detail:
 
-| Scenario         | Trigger                                                                      | Config Key            | Default Model  |
-| ---------------- | ---------------------------------------------------------------------------- | --------------------- | -------------- |
-| **Default**      | Standard chat                                                                | `models.default`      | `kimi-k2.6`    |
-| **Think**        | System prompt contains "think", "plan", "reason"; or thinking content blocks | `models.think`        | `glm-5.1`      |
-| **Long Context** | Token count exceeds `context_threshold`                                      | `models.long_context` | `minimax-m2.7` |
-| **Background**   | File read, directory list, grep patterns                                     | `models.background`   | `qwen3.5-plus` |
+| Route Type             | Trigger                                                                      | Config Key                     | Default Model      |
+| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------ | ------------------ |
+| **Full Model Name**    | Incoming `model` already equals an OpenCode Go model ID like `deepseek-v4-pro` | direct request model           | request-specified  |
+| **Claude Category**    | Incoming `model` contains `haiku`, `sonnet`, or `opus`                       | `claude_code.models.<tier>`    | user-configured    |
+| **Default**            | Standard chat                                                                | `models.default`               | `kimi-k2.6`        |
+| **Think**              | System prompt contains "think", "plan", "reason"; or thinking content blocks | `models.think`                 | `glm-5`            |
+| **Complex**            | Complex/system/tool-heavy instructions                                       | `models.complex`               | `glm-5.1`          |
+| **Long Context**       | Token count exceeds `context_threshold`                                      | `models.long_context`          | `minimax-m2.5`     |
+| **Background**         | File read, directory list, grep patterns                                     | `models.background`            | `qwen3.5-plus`     |
+| **Streaming Fallback** | Streaming request without a Claude category match                            | `models.fast`                  | `qwen3.6-plus`     |
 
-Routing priority: **Long Context** → **Think** → **Background** → **Default**
+Routing priority: **Full Model Name** → **Claude Category** → **Long Context** → **Complex** → **Think** → **Background** → **Default**
+
+For streaming requests without a Claude category match, the fallback router prefers **Long Context** first and otherwise uses **Fast** for lower TTFT.
 
 ### Fallback Chains
 
@@ -407,10 +477,10 @@ or a Unix-like shell, and Scoop-provided environment variables continue to work.
 
 ### "invalid request body" Error
 
-This means the proxy couldn't parse the request from Claude Code. Enable debug logging to see the raw request:
+This means the proxy couldn't parse the request from Claude Code. Enable debug logging and request previews to inspect the inbound body preview:
 
 ```json
-{ "logging": { "level": "debug" } }
+{ "logging": { "level": "debug", "requests": true } }
 ```
 
 Or set the environment variable:
@@ -445,24 +515,36 @@ echo $ANTHROPIC_BASE_URL  # Should be http://127.0.0.1:3456
 
 The proxy transforms OpenAI SSE to Anthropic SSE in real-time. If streaming appears broken:
 
-1. Set log level to `debug` to see the raw SSE chunks
+1. Set log level to `debug` and `logging.requests=true` to see request previews and first-byte timing
 2. Check that no proxy or firewall is buffering the connection
 3. Try a non-streaming request first to verify the model works
 
 ### Debug Mode
 
-For maximum logging, run with debug level:
+For maximum useful logging, run with debug level and request previews enabled:
 
 ```bash
 OC_GO_CC_LOG_LEVEL=debug oc-go-cc serve
 ```
 
+```json
+{
+  "logging": {
+    "level": "debug",
+    "requests": true
+  }
+}
+```
+
 This logs:
 
-- Raw Anthropic request body from Claude Code
-- Transformed OpenAI request sent to OpenCode Go
-- Raw OpenAI response received
-- SSE stream events during streaming
+- Parsed Anthropic request parameters such as `temperature`, `top_p`, `max_tokens`, and `stream`
+- Capped previews of the raw Anthropic request body from Claude Code
+- Capped previews of the transformed OpenAI request sent to OpenCode Go
+- Capped previews of raw non-streaming upstream responses
+- Streaming first-byte timing and stream attempt timeout information
+
+Payload previews are truncated to keep logs manageable. Request/response headers are not logged.
 
 ## Architecture
 
@@ -527,6 +609,24 @@ make install
 # Build cross-platform release binaries
 make dist
 ```
+
+On Windows PowerShell, `make` may not be installed by default. In that case, use the Go toolchain directly:
+
+```powershell
+$version = git describe --tags --always --dirty 2>$null
+if (-not $version) { $version = "dev" }
+
+New-Item -ItemType Directory -Force -Path bin | Out-Null
+go build -ldflags "-X main.version=$version" -o bin/oc-go-cc.exe ./cmd/oc-go-cc
+```
+
+For Windows release builds, use the PowerShell-native dist script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dist.ps1 -GoProxy direct
+```
+
+For a detailed Chinese guide covering build, config, startup, and Windows usage, see [MakeAndUse.md](MakeAndUse.md).
 
 ## License
 

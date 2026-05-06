@@ -75,31 +75,35 @@ func (t *RequestTransformer) TransformRequest(
 		openaiReq.MaxTokens = &maxTokens
 	}
 
-	// DeepSeek-v4 models always operate in thinking mode. When conversation
-	// history contains thinking blocks (round-tripped as reasoning_content),
-	// we MUST send thinking mode params so DeepSeek validates reasoning_content
-	// on assistant messages. When history LACKS thinking blocks (Claude Code
-	// dropped them), we MUST explicitly disable thinking mode so DeepSeek
-	// doesn't require reasoning_content we can't provide.
-	hasThinkingInHistory := HasThinkingBlocks(anthropicReq.Messages)
-	if hasThinkingInHistory {
-		// Thinking mode required — use model config values or defaults.
-		if model.ReasoningEffort != "" {
-			openaiReq.ReasoningEffort = &model.ReasoningEffort
-		} else {
-			defaultEffort := "high"
-			openaiReq.ReasoningEffort = &defaultEffort
+	// Only DeepSeek-v4 models use the OpenCode Go thinking/reasoning knobs.
+	// Other OpenAI-compatible providers such as GLM reject these fields.
+	if isDeepSeekModel(model.ModelID) {
+		// DeepSeek-v4 models always operate in thinking mode. When conversation
+		// history contains thinking blocks (round-tripped as reasoning_content),
+		// we MUST send thinking mode params so DeepSeek validates reasoning_content
+		// on assistant messages. When history LACKS thinking blocks (Claude Code
+		// dropped them), we MUST explicitly disable thinking mode so DeepSeek
+		// doesn't require reasoning_content we can't provide.
+		hasThinkingInHistory := HasThinkingBlocks(anthropicReq.Messages)
+		if hasThinkingInHistory {
+			// Thinking mode required — use model config values or defaults.
+			if model.ReasoningEffort != "" {
+				openaiReq.ReasoningEffort = &model.ReasoningEffort
+			} else {
+				defaultEffort := "high"
+				openaiReq.ReasoningEffort = &defaultEffort
+			}
+			if len(model.Thinking) > 0 {
+				openaiReq.Thinking = model.Thinking
+			} else {
+				openaiReq.Thinking = json.RawMessage(`{"type":"enabled"}`)
+			}
+		} else if len(model.Thinking) > 0 || model.ReasoningEffort != "" {
+			// Model config wants thinking mode but history has no thinking blocks.
+			// Explicitly disable to prevent DeepSeek from requiring reasoning_content
+			// on assistant messages that can't provide it.
+			openaiReq.Thinking = json.RawMessage(`{"type":"disabled"}`)
 		}
-		if len(model.Thinking) > 0 {
-			openaiReq.Thinking = model.Thinking
-		} else {
-			openaiReq.Thinking = json.RawMessage(`{"type":"enabled"}`)
-		}
-	} else if len(model.Thinking) > 0 || model.ReasoningEffort != "" {
-		// Model config wants thinking mode but history has no thinking blocks.
-		// Explicitly disable to prevent DeepSeek from requiring reasoning_content
-		// on assistant messages that can't provide it.
-		openaiReq.Thinking = json.RawMessage(`{"type":"disabled"}`)
 	}
 
 	// Transform tools if present

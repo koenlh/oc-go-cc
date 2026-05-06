@@ -109,8 +109,9 @@ func (c *OpenCodeClient) ChatCompletion(
 	req *types.ChatCompletionRequest,
 ) (*http.Response, error) {
 	endpoint := c.getEndpoint(modelID)
+	requestPayload := sanitizeChatCompletionRequestForEndpoint(req, modelID)
 
-	body, err := json.Marshal(req)
+	body, err := json.Marshal(requestPayload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -118,11 +119,11 @@ func (c *OpenCodeClient) ChatCompletion(
 		c.logger.Debug("sending upstream openai request",
 			"model", modelID,
 			"endpoint", endpoint.BaseURL,
-			"stream", req.Stream != nil && *req.Stream,
-			"outbound_temperature", optionalFloat64Value(req.Temperature),
-			"outbound_temperature_present", req.Temperature != nil,
-			"outbound_max_tokens", optionalIntValue(req.MaxTokens),
-			"outbound_max_tokens_present", req.MaxTokens != nil,
+			"stream", requestPayload.Stream != nil && *requestPayload.Stream,
+			"outbound_temperature", optionalFloat64Value(requestPayload.Temperature),
+			"outbound_temperature_present", requestPayload.Temperature != nil,
+			"outbound_max_tokens", optionalIntValue(requestPayload.MaxTokens),
+			"outbound_max_tokens_present", requestPayload.MaxTokens != nil,
 			"bytes", len(body),
 			"preview", debuglog.PreviewBytes(body),
 		)
@@ -155,6 +156,32 @@ func (c *OpenCodeClient) ChatCompletion(
 	}
 
 	return resp, nil
+}
+
+func sanitizeChatCompletionRequestForEndpoint(req *types.ChatCompletionRequest, modelID string) *types.ChatCompletionRequest {
+	if req == nil || IsAnthropicModel(modelID) {
+		return req
+	}
+
+	var needsCopy bool
+	for _, msg := range req.Messages {
+		if msg.CacheControl != nil {
+			needsCopy = true
+			break
+		}
+	}
+	if !needsCopy {
+		return req
+	}
+
+	cloned := *req
+	cloned.Messages = make([]types.ChatMessage, len(req.Messages))
+	copy(cloned.Messages, req.Messages)
+	for i := range cloned.Messages {
+		cloned.Messages[i].CacheControl = nil
+	}
+
+	return &cloned
 }
 
 // ChatCompletionNonStreaming sends a non-streaming request and returns the full parsed response.

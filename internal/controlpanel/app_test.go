@@ -25,6 +25,25 @@ func TestReadLogTailReturnsLastLines(t *testing.T) {
 	}
 }
 
+func TestClearLogFileTruncatesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oc-go-cc.log")
+	if err := os.WriteFile(path, []byte("warn line\nerror line\n"), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := ClearLogFile(path); err != nil {
+		t.Fatalf("ClearLogFile() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("len(data) = %d, want 0", len(data))
+	}
+}
+
 func TestStatusSnapshotReportsRunningProcess(t *testing.T) {
 	paths := &daemon.Paths{
 		PIDFile: filepath.Join(t.TempDir(), "oc-go-cc.pid"),

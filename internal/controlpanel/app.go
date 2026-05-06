@@ -152,6 +152,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/start", a.handleStart)
 	mux.HandleFunc("/api/stop", a.handleStop)
 	mux.HandleFunc("/api/logs", a.handleLogs)
+	mux.HandleFunc("/api/logs/clear", a.handleClearLogs)
 	mux.HandleFunc("/api/quit", a.handleQuit)
 	return a.trackAccess(mux)
 }
@@ -281,6 +282,24 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *App) handleClearLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := ClearLogFile(a.paths.LogFile); err != nil {
+		a.writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	a.writeJSON(w, http.StatusOK, logsResponse{
+		Path:      a.paths.LogFile,
+		Content:   "",
+		UpdatedAt: time.Now(),
+	})
+}
+
 func (a *App) handleQuit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -378,6 +397,14 @@ func ReadLogTail(path string, maxBytes, maxLines int) (string, error) {
 		lines = lines[len(lines)-maxLines:]
 	}
 	return strings.TrimLeft(strings.Join(lines, "\n"), "\n"), nil
+}
+
+func ClearLogFile(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 func readConfiguredAddress(path string) (string, int) {

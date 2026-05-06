@@ -121,6 +121,22 @@ type ContentBlock struct {
 	Source    *ImageSource    `json:"source,omitempty"`    // For image blocks
 }
 
+// MarshalJSON keeps streaming start blocks protocol-compatible. Anthropic text
+// content_block_start events include an explicit empty text field.
+func (b ContentBlock) MarshalJSON() ([]byte, error) {
+	type contentBlockAlias ContentBlock
+	if b.Type == "text" {
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{
+			Type: b.Type,
+			Text: b.Text,
+		})
+	}
+	return json.Marshal(contentBlockAlias(b))
+}
+
 // GetToolID returns the appropriate tool ID for this block type.
 // For tool_use: returns ID. For tool_result: returns ToolUseID.
 func (b *ContentBlock) GetToolID() string {
@@ -211,11 +227,27 @@ type ContentBlockDelta struct {
 
 // Delta represents a partial update in a streaming response.
 type Delta struct {
-	Type        string `json:"type"`
+	Type        string `json:"type,omitempty"`
 	Text        string `json:"text,omitempty"`
 	Thinking    string `json:"thinking,omitempty"`
+	Signature   string `json:"signature,omitempty"`
 	PartialJSON string `json:"partial_json,omitempty"`
 	StopReason  string `json:"stop_reason,omitempty"`
+}
+
+// MarshalJSON matches Anthropic's message_delta shape for stop events while
+// preserving normal content delta encoding.
+func (d Delta) MarshalJSON() ([]byte, error) {
+	type deltaAlias Delta
+	if d.Type == "" && d.StopReason != "" {
+		return json.Marshal(struct {
+			StopReason   string  `json:"stop_reason"`
+			StopSequence *string `json:"stop_sequence"`
+		}{
+			StopReason: d.StopReason,
+		})
+	}
+	return json.Marshal(deltaAlias(d))
 }
 
 // MessageEvent represents a Server-Sent Event from the streaming API.

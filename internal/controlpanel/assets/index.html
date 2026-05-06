@@ -377,6 +377,7 @@
           <div class="toolbar-controls">
             <label><input type="checkbox" id="autoRefresh" checked> 自动刷新</label>
             <button id="refreshLogsBtn" class="secondary">刷新日志</button>
+            <button id="clearLogsBtn" class="secondary">清空日志</button>
             <button id="toggleFullscreenBtn" class="secondary">全屏查看</button>
           </div>
         </div>
@@ -409,6 +410,7 @@
     const autoRefresh = document.getElementById('autoRefresh');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const clearLogsBtn = document.getElementById('clearLogsBtn');
     const toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
     const selectedLevels = new Set(['debug', 'info', 'warn', 'error', 'other']);
 
@@ -474,6 +476,19 @@
       const logs = await api('/api/logs?lines=240');
       lastLogContent = logs.content || '';
       renderLogs();
+    }
+
+    async function clearLogs() {
+      const confirmed = window.confirm('确认清空当前日志文件吗？这个操作不可撤销。');
+      if (!confirmed) {
+        return;
+      }
+
+      showBanner('正在清空日志...', 'info');
+      await api('/api/logs/clear', { method: 'POST' });
+      lastLogContent = '';
+      renderLogs();
+      showBanner('日志已清空。', 'info');
     }
 
     function normalizeLevel(line, previousLevel = 'other') {
@@ -590,6 +605,9 @@
     });
     document.getElementById('refreshLogsBtn').addEventListener('click', async () => {
       await refreshLogs().catch(err => showBanner(err.message, 'error'));
+    });
+    clearLogsBtn.addEventListener('click', async () => {
+      await clearLogs().catch(err => showBanner(err.message, 'error'));
     });
     toggleFullscreenBtn.addEventListener('click', async () => {
       await toggleFullscreen().catch(err => showBanner(err.message, 'error'));

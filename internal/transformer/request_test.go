@@ -316,6 +316,37 @@ func TestTransformRequestAppliesReasoningEffortAndThinking(t *testing.T) {
 	}
 }
 
+func TestTransformRequestDoesNotApplyDeepSeekThinkingParamsToGLM(t *testing.T) {
+	transformer := NewRequestTransformer()
+
+	req := &types.MessageRequest{
+		Model:     "claude-test",
+		MaxTokens: 256,
+		Messages: []types.Message{
+			{Role: "user", Content: json.RawMessage(`"solve this carefully"`)},
+			{
+				Role: "assistant",
+				Content: json.RawMessage(`[
+					{"type":"thinking","thinking":"Let me think..."},
+					{"type":"text","text":"The answer is 42"}
+				]`),
+			},
+		},
+	}
+
+	openaiReq, err := transformer.TransformRequest(req, config.ModelConfig{ModelID: "glm-5.1"})
+	if err != nil {
+		t.Fatalf("TransformRequest() error = %v", err)
+	}
+
+	if openaiReq.ReasoningEffort != nil {
+		t.Fatalf("ReasoningEffort = %v, want nil for non-DeepSeek model", *openaiReq.ReasoningEffort)
+	}
+	if len(openaiReq.Thinking) > 0 {
+		t.Fatalf("Thinking = %s, want empty for non-DeepSeek model", openaiReq.Thinking)
+	}
+}
+
 func TestTransformRequestStripsReasoningEffortWhenNoThinkingHistory(t *testing.T) {
 	transformer := NewRequestTransformer()
 

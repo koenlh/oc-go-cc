@@ -2,6 +2,8 @@
 package transformer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -29,7 +31,7 @@ func (t *ResponseTransformer) TransformResponse(
 	choice := openaiResp.Choices[0]
 
 	// Transform content blocks from the OpenAI message.
-	contentBlocks, err := t.transformContent(choice.Message)
+	contentBlocks, err := t.transformContent(choice.Message, originalModel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform content: %w", err)
 	}
@@ -58,15 +60,16 @@ func (t *ResponseTransformer) TransformResponse(
 }
 
 // transformContent converts an OpenAI message to Anthropic content blocks.
-func (t *ResponseTransformer) transformContent(msg types.ChatMessage) ([]types.ContentBlock, error) {
+func (t *ResponseTransformer) transformContent(msg types.ChatMessage, modelID string) ([]types.ContentBlock, error) {
 	var blocks []types.ContentBlock
 
 	// Preserve reasoning content as a thinking block so it round-trips correctly
 	// on multi-turn tool-calling conversations.
-	if msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
+	if isDeepSeekModel(modelID) && msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
 		blocks = append(blocks, types.ContentBlock{
-			Type:     "thinking",
-			Thinking: *msg.ReasoningContent,
+			Type:      "thinking",
+			Thinking:  *msg.ReasoningContent,
+			Signature: syntheticThinkingSignature(*msg.ReasoningContent),
 		})
 	}
 
@@ -76,8 +79,8 @@ func (t *ResponseTransformer) transformContent(msg types.ChatMessage) ([]types.C
 
 		blocks = append(blocks, types.ContentBlock{
 			Type:  "tool_use",
-			ID:    tc.ID,
-			Name:  tc.Function.Name,
+			ID:    normalizeToolUseID(tc.ID, 0),
+			Name:  normalizeToolUseName(tc.Function.Name),
 			Input: inputJSON,
 		})
 	}
@@ -110,6 +113,55 @@ func sanitizeToolArguments(arguments string) json.RawMessage {
 		return json.RawMessage(trimmed)
 	}
 	return json.RawMessage(`{}`)
+}
+
+func syntheticThinkingSignature(thinking string) string {
+	if thinking == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(thinking))
+	return "sig_" + hex.EncodeToString(sum[:])
+}
+
+func normalizeToolUseID(id string, fallbackIndex int) string {
+	trimmed := strings.TrimSpace(id)
+	if strings.HasPrefix(trimmed, "toolu_") {
+		return trimmed
+	}
+	if trimmed != "" {
+		return "toolu_" + sanitizeToolUseIDComponent(trimmed)
+	}
+	return fmt.Sprintf("toolu_generated_%d", fallbackIndex)
+}
+
+func sanitizeToolUseIDComponent(id string) string {
+	var b strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "generated"
+	}
+	return b.String()
+}
+
+func normalizeToolUseName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed != "" {
+		return trimmed
+	}
+	return "unknown_tool"
 }
 
 // mapFinishReason maps OpenAI finish reasons to Anthropic stop reasons.

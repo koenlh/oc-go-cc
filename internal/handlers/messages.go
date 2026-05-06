@@ -106,6 +106,64 @@ func optionalFloat64Value(value *float64) interface{} {
 	return *value
 }
 
+func shortPreview(text string) string {
+	const limit = 160
+	text = strings.ReplaceAll(text, "\n", `\n`)
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "...(truncated)"
+}
+
+func summarizeOpenAIToolCalls(toolCalls []types.ToolCall) []string {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	summaries := make([]string, 0, len(toolCalls))
+	for _, call := range toolCalls {
+		summaries = append(summaries, fmt.Sprintf("%s(id=%s,args=%s)", call.Function.Name, call.ID, shortPreview(call.Function.Arguments)))
+	}
+	return summaries
+}
+
+func summarizeOpenAIMessages(messages []types.ChatMessage) []string {
+	if len(messages) == 0 {
+		return nil
+	}
+	summaries := make([]string, 0, len(messages))
+	for i, msg := range messages {
+		parts := []string{fmt.Sprintf("%d:%s", i, msg.Role)}
+		if msg.Name != "" {
+			parts = append(parts, "name="+msg.Name)
+		}
+		if msg.ToolCallID != "" {
+			parts = append(parts, "tool_call_id="+msg.ToolCallID)
+		}
+		if msg.Content != "" {
+			parts = append(parts, "content="+shortPreview(msg.Content))
+		}
+		if msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
+			parts = append(parts, "reasoning="+shortPreview(*msg.ReasoningContent))
+		}
+		if len(msg.ToolCalls) > 0 {
+			parts = append(parts, "tool_calls="+strings.Join(summarizeOpenAIToolCalls(msg.ToolCalls), ","))
+		}
+		summaries = append(summaries, strings.Join(parts, " "))
+	}
+	return summaries
+}
+
+func summarizeOpenAIToolNames(tools []types.ToolDef) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Function.Name)
+	}
+	return names
+}
+
 // NewMessagesHandler creates a new messages handler.
 func NewMessagesHandler(
 	cfg *config.Config,
@@ -122,7 +180,7 @@ func NewMessagesHandler(
 		fallbackHandler:     fallbackHandler,
 		requestTransformer:  transformer.NewRequestTransformer(),
 		responseTransformer: transformer.NewResponseTransformer(),
-		streamHandler:       transformer.NewStreamHandler(),
+		streamHandler:       transformer.NewStreamHandlerWithPayloadLogging(cfg.Logging.Requests),
 		tokenCounter:        tokenCounter,
 		logger:              slog.Default(),
 		rateLimiter:         middleware.NewRateLimiter(100, time.Minute),
@@ -371,6 +429,15 @@ func (h *MessagesHandler) handleStreaming(
 			h.logger.Warn("request transform failed", "model", model.ModelID, "error", err)
 			continue
 		}
+		if h.shouldLogPayloads() {
+			h.logger.Debug("transformed openai streaming request summary",
+				"model", model.ModelID,
+				"messages", len(openaiReq.Messages),
+				"message_summaries", summarizeOpenAIMessages(openaiReq.Messages),
+				"tool_names", summarizeOpenAIToolNames(openaiReq.Tools),
+				"tool_choice_present", openaiReq.ToolChoice != nil,
+			)
+		}
 
 		// Get streaming body from upstream
 		streamBody, err := h.client.GetStreamingBody(ctx, model.ModelID, openaiReq)
@@ -591,6 +658,15 @@ func (h *MessagesHandler) executeOpenAIRequest(
 	openaiReq, err := h.requestTransformer.TransformRequest(anthropicReq, model)
 	if err != nil {
 		return nil, fmt.Errorf("request transform failed: %w", err)
+	}
+	if h.shouldLogPayloads() {
+		h.logger.Debug("transformed openai request summary",
+			"model", model.ModelID,
+			"messages", len(openaiReq.Messages),
+			"message_summaries", summarizeOpenAIMessages(openaiReq.Messages),
+			"tool_names", summarizeOpenAIToolNames(openaiReq.Tools),
+			"tool_choice_present", openaiReq.ToolChoice != nil,
+		)
 	}
 
 	// Handle non-streaming.

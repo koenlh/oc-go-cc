@@ -15,7 +15,7 @@ func TestTransformResponsePreservesReasoningContent(t *testing.T) {
 		ID:      "chatcmpl_123",
 		Object:  "chat.completion",
 		Created: 1234567890,
-		Model:   "kimi-k2.6",
+		Model:   "deepseek-v4-flash",
 		Choices: []types.Choice{
 			{
 				Index: 0,
@@ -34,7 +34,7 @@ func TestTransformResponsePreservesReasoningContent(t *testing.T) {
 		},
 	}
 
-	anthropicResp, err := transformer.TransformResponse(resp, "kimi-k2.6")
+	anthropicResp, err := transformer.TransformResponse(resp, "deepseek-v4-flash")
 	if err != nil {
 		t.Fatalf("TransformResponse() error = %v", err)
 	}
@@ -48,6 +48,9 @@ func TestTransformResponsePreservesReasoningContent(t *testing.T) {
 	}
 	if got, want := anthropicResp.Content[0].Thinking, reasoning; got != want {
 		t.Fatalf("Content[0].Thinking = %q, want %q", got, want)
+	}
+	if got, want := anthropicResp.Content[0].Signature, syntheticThinkingSignature(reasoning); got != want {
+		t.Fatalf("Content[0].Signature = %q, want %q", got, want)
 	}
 
 	if got, want := anthropicResp.Content[1].Type, "text"; got != want {
@@ -66,7 +69,7 @@ func TestTransformResponsePreservesReasoningContentWithToolCalls(t *testing.T) {
 		ID:      "chatcmpl_456",
 		Object:  "chat.completion",
 		Created: 1234567890,
-		Model:   "kimi-k2.6",
+		Model:   "deepseek-v4-pro",
 		Choices: []types.Choice{
 			{
 				Index: 0,
@@ -95,7 +98,7 @@ func TestTransformResponsePreservesReasoningContentWithToolCalls(t *testing.T) {
 		},
 	}
 
-	anthropicResp, err := transformer.TransformResponse(resp, "kimi-k2.6")
+	anthropicResp, err := transformer.TransformResponse(resp, "deepseek-v4-pro")
 	if err != nil {
 		t.Fatalf("TransformResponse() error = %v", err)
 	}
@@ -110,9 +113,15 @@ func TestTransformResponsePreservesReasoningContentWithToolCalls(t *testing.T) {
 	if got, want := anthropicResp.Content[0].Thinking, reasoning; got != want {
 		t.Fatalf("Content[0].Thinking = %q, want %q", got, want)
 	}
+	if got, want := anthropicResp.Content[0].Signature, syntheticThinkingSignature(reasoning); got != want {
+		t.Fatalf("Content[0].Signature = %q, want %q", got, want)
+	}
 
 	if got, want := anthropicResp.Content[1].Type, "tool_use"; got != want {
 		t.Fatalf("Content[1].Type = %q, want %q", got, want)
+	}
+	if got, want := anthropicResp.Content[1].ID, "toolu_call_123"; got != want {
+		t.Fatalf("Content[1].ID = %q, want %q", got, want)
 	}
 	if got, want := anthropicResp.Content[1].Name, "get_weather"; got != want {
 		t.Fatalf("Content[1].Name = %q, want %q", got, want)
@@ -172,6 +181,82 @@ func TestTransformResponseSanitizesInvalidToolArguments(t *testing.T) {
 
 	if _, err := json.Marshal(anthropicResp); err != nil {
 		t.Fatalf("json.Marshal(anthropicResp) error = %v", err)
+	}
+}
+
+func TestTransformResponseSynthesizesMissingToolUseFields(t *testing.T) {
+	transformer := NewResponseTransformer()
+
+	resp := &types.ChatCompletionResponse{
+		ID:      "chatcmpl_missing_tool_fields",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   "qwen3.6-plus",
+		Choices: []types.Choice{{
+			Index: 0,
+			Message: types.ChatMessage{
+				Role:    "assistant",
+				Content: "",
+				ToolCalls: []types.ToolCall{{
+					Function: types.FunctionCall{Arguments: `{"path":"README.md"}`},
+				}},
+			},
+			FinishReason: "tool_calls",
+		}},
+		Usage: types.UsageInfo{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}
+
+	anthropicResp, err := transformer.TransformResponse(resp, "qwen3.6-plus")
+	if err != nil {
+		t.Fatalf("TransformResponse() error = %v", err)
+	}
+
+	block := anthropicResp.Content[0]
+	if got, want := block.Type, "tool_use"; got != want {
+		t.Fatalf("Content[0].Type = %q, want %q", got, want)
+	}
+	if got, want := block.ID, "toolu_generated_0"; got != want {
+		t.Fatalf("Content[0].ID = %q, want %q", got, want)
+	}
+	if got, want := block.Name, "unknown_tool"; got != want {
+		t.Fatalf("Content[0].Name = %q, want %q", got, want)
+	}
+}
+
+func TestTransformResponseOmitsReasoningContentForNonDeepSeekModels(t *testing.T) {
+	transformer := NewResponseTransformer()
+
+	reasoning := "Internal reasoning that should not be surfaced"
+	resp := &types.ChatCompletionResponse{
+		ID:      "chatcmpl_qwen_reasoning",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   "qwen3.6-plus",
+		Choices: []types.Choice{{
+			Index: 0,
+			Message: types.ChatMessage{
+				Role:             "assistant",
+				Content:          `{"title":"Fix text box effect lag on fast typing"}`,
+				ReasoningContent: &reasoning,
+			},
+			FinishReason: "stop",
+		}},
+		Usage: types.UsageInfo{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}
+
+	anthropicResp, err := transformer.TransformResponse(resp, "qwen3.6-plus")
+	if err != nil {
+		t.Fatalf("TransformResponse() error = %v", err)
+	}
+
+	if got, want := len(anthropicResp.Content), 1; got != want {
+		t.Fatalf("len(Content) = %d, want %d", got, want)
+	}
+	if got, want := anthropicResp.Content[0].Type, "text"; got != want {
+		t.Fatalf("Content[0].Type = %q, want %q", got, want)
+	}
+	if got, want := anthropicResp.Content[0].Text, `{"title":"Fix text box effect lag on fast typing"}`; got != want {
+		t.Fatalf("Content[0].Text = %q, want %q", got, want)
 	}
 }
 

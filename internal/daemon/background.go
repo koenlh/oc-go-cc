@@ -12,6 +12,7 @@ import (
 type BackgroundOpts struct {
 	ConfigPath string // --config flag value, may be empty
 	Port       int    // --port flag value, 0 means default
+	BinaryPath string // target service binary path, may be empty to use current binary
 }
 
 // ForkIntoBackground starts the current binary as a detached background process.
@@ -50,7 +51,12 @@ func ForkIntoBackground(opts BackgroundOpts) error {
 	}
 	defer func() { _ = logFile.Close() }()
 
-	cmd := newBackgroundCommand(paths.BinaryPath, args)
+	binaryPath, err := resolveBackgroundBinaryPath(paths.BinaryPath, opts.BinaryPath)
+	if err != nil {
+		return err
+	}
+
+	cmd := newBackgroundCommand(binaryPath, args)
 	cmd.Env = os.Environ()
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -67,6 +73,18 @@ func ForkIntoBackground(opts BackgroundOpts) error {
 	fmt.Printf("  Stop with: %s stop\n", AppName)
 
 	return nil
+}
+
+func resolveBackgroundBinaryPath(defaultBinaryPath, overrideBinaryPath string) (string, error) {
+	if overrideBinaryPath == "" {
+		return defaultBinaryPath, nil
+	}
+
+	resolved, err := filepath.Abs(overrideBinaryPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve binary path: %w", err)
+	}
+	return resolved, nil
 }
 
 // DaemonizeSetup is called by the child process (when --_daemonize is set).

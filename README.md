@@ -114,6 +114,24 @@ oc-go-cc serve -b
 
 This starts the server as a background daemon and returns immediately. Logs are written to the platform config directory. On Windows this is `%APPDATA%\oc-go-cc\oc-go-cc.log`; on macOS/Linux it is `~/.config/oc-go-cc/oc-go-cc.log`. If Windows detects an existing legacy `~/.config/oc-go-cc` directory, logs continue to use that directory for compatibility.
 
+#### Optional Local Control Panel
+
+If you prefer a small local UI instead of typing `serve`, `status`, and `stop`, build and run `oc-go-cc-ui`. It opens a browser-based control panel for:
+
+- starting the proxy
+- stopping the proxy
+- checking current status and PID
+- reading the latest log output
+
+On Windows, the easiest build path is:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1
+.\bin\oc-go-cc-ui.exe
+```
+
+Keep `oc-go-cc.exe` and `oc-go-cc-ui.exe` in the same directory, or pass `--service-binary` explicitly.
+
 #### Auto-start on Login
 
 To start the proxy automatically when you log in:
@@ -591,6 +609,9 @@ configs/
 # Build (version auto-detected from git)
 make build
 
+# Build the local control panel UI
+make build-ui
+
 # Run in development mode
 make run
 
@@ -619,6 +640,14 @@ if (-not $version) { $version = "dev" }
 New-Item -ItemType Directory -Force -Path bin | Out-Null
 go build -ldflags "-X main.version=$version" -o bin/oc-go-cc.exe ./cmd/oc-go-cc
 ```
+
+To build the local control panel on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1
+```
+
+This creates `bin\oc-go-cc-ui.exe`, which opens a browser control panel for start, stop, status, and log viewing.
 
 For Windows release builds, use the PowerShell-native dist script:
 

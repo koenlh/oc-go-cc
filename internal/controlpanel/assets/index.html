@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>oc-go-cc Control Panel</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #f5efe6 0%, #e7ecf3 100%);
+      --card: rgba(255,255,255,0.82);
+      --line: rgba(18, 26, 38, 0.12);
+      --text: #182230;
+      --muted: #5d6878;
+      --accent: #0f7b6c;
+      --accent-strong: #0b5f53;
+      --danger: #9b2c2c;
+      --warn: #b7791f;
+      --shadow: 0 18px 42px rgba(24, 34, 48, 0.12);
+      --radius: 20px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --ui: "Segoe UI Variable", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--ui);
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 36px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .panel {
+      background: var(--card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .headline {
+      padding: 26px 26px 22px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.05;
+    }
+
+    .subhead {
+      margin: 12px 0 0;
+      max-width: 58ch;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .status-card {
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-weight: 700;
+      width: fit-content;
+    }
+
+    .status-pill.running {
+      color: #0d5c49;
+      background: rgba(15, 123, 108, 0.12);
+    }
+
+    .status-pill.stopped {
+      color: #7b1b1b;
+      background: rgba(155, 44, 44, 0.1);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-copy {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 18px;
+    }
+
+    .section {
+      padding: 22px 24px;
+    }
+
+    .section h2 {
+      margin: 0 0 18px;
+      font-size: 18px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .primary { background: var(--accent); color: white; }
+    .primary:hover { background: var(--accent-strong); }
+    .secondary { background: rgba(24, 34, 48, 0.07); color: var(--text); }
+    .danger { background: rgba(155, 44, 44, 0.12); color: var(--danger); }
+
+    .meta {
+      display: grid;
+      gap: 12px;
+    }
+
+    .meta-item {
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.68);
+      border: 1px solid rgba(18, 26, 38, 0.08);
+    }
+
+    .label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .value {
+      word-break: break-all;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .toolbar-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toolbar-primary {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-meta {
+      color: var(--muted);
+      font-size: 13px;
+      font-family: var(--mono);
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(24, 34, 48, 0.06);
+      border: 1px solid rgba(18, 26, 38, 0.08);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .filter-chip input {
+      accent-color: var(--accent);
+    }
+
+    .log-panel {
+      position: relative;
+      transition: all 180ms ease;
+    }
+
+    .log-panel.immersive {
+      position: fixed;
+      inset: 16px;
+      z-index: 999;
+      padding: 22px;
+      background: rgba(248, 245, 239, 0.98);
+      backdrop-filter: blur(16px);
+    }
+
+    .log-panel:fullscreen {
+      padding: 22px;
+      background: rgba(248, 245, 239, 0.98);
+    }
+
+    .log-panel:fullscreen .logbox,
+    .log-panel.immersive .logbox {
+      min-height: calc(100vh - 170px);
+      max-height: calc(100vh - 170px);
+    }
+
+    .logbox {
+      min-height: 520px;
+      max-height: 68vh;
+      overflow: auto;
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: #131821;
+      color: #dce6f2;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .logbox.empty {
+      color: #93a3b8;
+      font-style: italic;
+    }
+
+    .banner {
+      display: none;
+      margin-bottom: 14px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .banner.error {
+      display: block;
+      background: rgba(155, 44, 44, 0.12);
+      color: #7b1b1b;
+      border: 1px solid rgba(155, 44, 44, 0.2);
+    }
+
+    .banner.info {
+      display: block;
+      background: rgba(15, 123, 108, 0.12);
+      color: #0d5c49;
+      border: 1px solid rgba(15, 123, 108, 0.18);
+    }
+
+    @media (max-width: 980px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 28px; }
+      .logbox { min-height: 360px; }
+    }
+
+    @media (max-width: 720px) {
+      .toolbar {
+        align-items: flex-start;
+      }
+
+      .toolbar-controls {
+        width: 100%;
+      }
+
+      .log-panel.immersive {
+        inset: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div id="banner" class="banner"></div>
+
+    <section class="hero">
+      <div class="panel headline">
+        <p class="eyebrow">oc-go-cc Control Panel</p>
+        <h1>启动、关闭、看日志，不再手敲命令。</h1>
+        <p class="subhead">这个控制面板直接复用现有的 PID、日志和后台守护逻辑。适合日常启动代理、查看运行状态、观察日志与快速排障。</p>
+      </div>
+
+      <div class="panel status-card">
+        <div>
+          <div id="statusPill" class="status-pill stopped"><span class="dot"></span><span>已停止</span></div>
+          <p id="statusCopy" class="status-copy">正在读取服务状态...</p>
+        </div>
+        <div class="value" id="versionLabel">Version: --</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel section">
+        <h2>服务控制</h2>
+        <div class="actions">
+          <button id="startBtn" class="primary">启动服务</button>
+          <button id="stopBtn" class="danger">停止服务</button>
+          <button id="refreshBtn" class="secondary">刷新状态</button>
+          <button id="quitBtn" class="secondary">退出面板</button>
+        </div>
+        <div class="meta">
+          <div class="meta-item"><span class="label">配置文件</span><div id="configPath" class="value">--</div></div>
+          <div class="meta-item"><span class="label">服务二进制</span><div id="binaryPath" class="value">--</div></div>
+          <div class="meta-item"><span class="label">日志文件</span><div id="logPath" class="value">--</div></div>
+          <div class="meta-item"><span class="label">PID 文件</span><div id="pidPath" class="value">--</div></div>
+          <div class="meta-item"><span class="label">服务地址</span><div id="serviceUrl" class="value">--</div></div>
+        </div>
+      </div>
+
+      <div id="logPanel" class="panel section log-panel">
+        <div class="toolbar">
+          <div class="toolbar-primary">
+            <h2>日志预览</h2>
+            <span id="logStats" class="toolbar-meta">显示 -- / -- 行</span>
+          </div>
+          <div class="toolbar-controls">
+            <label><input type="checkbox" id="autoRefresh" checked> 自动刷新</label>
+            <button id="refreshLogsBtn" class="secondary">刷新日志</button>
+            <button id="toggleFullscreenBtn" class="secondary">全屏查看</button>
+          </div>
+        </div>
+        <div class="filter-row" id="levelFilters">
+          <label class="filter-chip"><input type="checkbox" value="debug" checked> Debug</label>
+          <label class="filter-chip"><input type="checkbox" value="info" checked> Info</label>
+          <label class="filter-chip"><input type="checkbox" value="warn" checked> Warn</label>
+          <label class="filter-chip"><input type="checkbox" value="error" checked> Error</label>
+          <label class="filter-chip"><input type="checkbox" value="other" checked> Other</label>
+        </div>
+        <div id="logBox" class="logbox">正在读取日志...</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const banner = document.getElementById('banner');
+    const statusPill = document.getElementById('statusPill');
+    const statusCopy = document.getElementById('statusCopy');
+    const versionLabel = document.getElementById('versionLabel');
+    const configPath = document.getElementById('configPath');
+    const binaryPath = document.getElementById('binaryPath');
+    const logPath = document.getElementById('logPath');
+    const pidPath = document.getElementById('pidPath');
+    const serviceUrl = document.getElementById('serviceUrl');
+    const logPanel = document.getElementById('logPanel');
+    const logBox = document.getElementById('logBox');
+    const logStats = document.getElementById('logStats');
+    const levelFilters = document.getElementById('levelFilters');
+    const autoRefresh = document.getElementById('autoRefresh');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
+    const selectedLevels = new Set(['debug', 'info', 'warn', 'error', 'other']);
+
+    let lastLogContent = '';
+    let lastFilteredLineCount = 0;
+    let lastTotalLineCount = 0;
+
+    function showBanner(message, type = 'info') {
+      if (!message) {
+        banner.className = 'banner';
+        banner.textContent = '';
+        return;
+      }
+      banner.className = `banner ${type}`;
+      banner.textContent = message;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || `Request failed: ${response.status}`);
+      }
+      return body;
+    }
+
+    function renderStatus(status) {
+      versionLabel.textContent = `Version: ${status.version || '--'}`;
+      configPath.textContent = status.configPath || '--';
+      binaryPath.textContent = status.serviceBinary || '--';
+      logPath.textContent = status.logFile || '--';
+      pidPath.textContent = status.pidFile || '--';
+      serviceUrl.textContent = status.serviceUrl || '--';
+
+      if (status.running) {
+        statusPill.className = 'status-pill running';
+        statusPill.innerHTML = '<span class="dot"></span><span>运行中</span>';
+        statusCopy.textContent = `服务 PID: ${status.pid}，正在后台运行。`;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      } else {
+        statusPill.className = 'status-pill stopped';
+        statusPill.innerHTML = '<span class="dot"></span><span>已停止</span>';
+        statusCopy.textContent = '服务当前未运行，可以直接从这里启动。';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+
+      if (status.message) {
+        showBanner(status.message, status.running ? 'info' : 'error');
+      }
+    }
+
+    async function refreshStatus() {
+      const status = await api('/api/status');
+      renderStatus(status);
+    }
+
+    async function refreshLogs() {
+      const logs = await api('/api/logs?lines=240');
+      lastLogContent = logs.content || '';
+      renderLogs();
+    }
+
+    function normalizeLevel(line, previousLevel = 'other') {
+      const match = line.match(/(?:^|\s)level=(DEBUG|INFO|WARN|ERROR)\b/i);
+      if (match) {
+        return match[1].toLowerCase();
+      }
+
+      if (!line.trim()) {
+        return previousLevel;
+      }
+
+      return previousLevel === 'debug' || previousLevel === 'info' || previousLevel === 'warn' || previousLevel === 'error'
+        ? previousLevel
+        : 'other';
+    }
+
+    function classifyLogLines(content) {
+      if (!content) {
+        return [];
+      }
+
+      const lines = content.split('\n');
+      let previousLevel = 'other';
+
+      return lines.map(line => {
+        const level = normalizeLevel(line, previousLevel);
+        previousLevel = level;
+        return { line, level };
+      });
+    }
+
+    function renderLogs() {
+      const classified = classifyLogLines(lastLogContent);
+      lastTotalLineCount = classified.length;
+
+      const visibleLines = classified
+        .filter(entry => selectedLevels.has(entry.level))
+        .map(entry => entry.line);
+
+      lastFilteredLineCount = visibleLines.length;
+      logStats.textContent = `显示 ${lastFilteredLineCount} / ${lastTotalLineCount} 行`;
+
+      if (!visibleLines.length) {
+        logBox.textContent = lastTotalLineCount
+          ? '当前筛选条件下没有匹配的日志。'
+          : '日志文件还没有内容。';
+        logBox.classList.add('empty');
+        return;
+      }
+
+      logBox.classList.remove('empty');
+      logBox.textContent = visibleLines.join('\n');
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function updateFullscreenButton() {
+      const isFullscreen = document.fullscreenElement === logPanel || logPanel.classList.contains('immersive');
+      toggleFullscreenBtn.textContent = isFullscreen ? '退出全屏' : '全屏查看';
+    }
+
+    async function toggleFullscreen() {
+      if (document.fullscreenElement === logPanel) {
+        await document.exitFullscreen();
+        logPanel.classList.remove('immersive');
+        updateFullscreenButton();
+        return;
+      }
+
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+
+      if (typeof logPanel.requestFullscreen === 'function') {
+        try {
+          await logPanel.requestFullscreen();
+          logPanel.classList.remove('immersive');
+          updateFullscreenButton();
+          return;
+        } catch (error) {
+          logPanel.classList.add('immersive');
+          updateFullscreenButton();
+          showBanner(`浏览器未进入原生全屏，已切换到沉浸模式：${error.message}`, 'info');
+          return;
+        }
+      }
+
+      logPanel.classList.toggle('immersive');
+      updateFullscreenButton();
+    }
+
+    async function performAction(path) {
+      try {
+        showBanner('正在执行操作...', 'info');
+        const result = await api(path, { method: 'POST' });
+        if (result.status === 'shutting down') {
+          showBanner('控制面板正在退出...', 'info');
+          window.setTimeout(() => window.close(), 250);
+          return;
+        }
+        renderStatus(result);
+        await refreshLogs();
+      } catch (error) {
+        showBanner(error.message, 'error');
+      }
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => performAction('/api/start'));
+    document.getElementById('stopBtn').addEventListener('click', () => performAction('/api/stop'));
+    document.getElementById('quitBtn').addEventListener('click', () => performAction('/api/quit'));
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+      showBanner('', 'info');
+      await refreshStatus().catch(err => showBanner(err.message, 'error'));
+    });
+    document.getElementById('refreshLogsBtn').addEventListener('click', async () => {
+      await refreshLogs().catch(err => showBanner(err.message, 'error'));
+    });
+    toggleFullscreenBtn.addEventListener('click', async () => {
+      await toggleFullscreen().catch(err => showBanner(err.message, 'error'));
+    });
+
+    levelFilters.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.addEventListener('change', () => {
+        if (input.checked) {
+          selectedLevels.add(input.value);
+        } else {
+          selectedLevels.delete(input.value);
+        }
+
+        if (!selectedLevels.size) {
+          input.checked = true;
+          selectedLevels.add(input.value);
+          showBanner('至少保留一个日志级别。', 'info');
+        }
+
+        renderLogs();
+      });
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement !== logPanel) {
+        logPanel.classList.remove('immersive');
+      }
+      updateFullscreenButton();
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && logPanel.classList.contains('immersive') && !document.fullscreenElement) {
+        logPanel.classList.remove('immersive');
+        updateFullscreenButton();
+      }
+    });
+
+    async function boot() {
+      try {
+        await refreshStatus();
+        await refreshLogs();
+        updateFullscreenButton();
+        showBanner('', 'info');
+      } catch (error) {
+        showBanner(error.message, 'error');
+      }
+    }
+
+    setInterval(async () => {
+      try {
+        await refreshStatus();
+        if (autoRefresh.checked) {
+          await refreshLogs();
+        }
+      } catch (error) {
+        showBanner(error.message, 'error');
+      }
+    }, 2000);
+
+    boot();
+  </script>
+</body>
+</html>

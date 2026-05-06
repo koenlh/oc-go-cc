@@ -76,3 +76,30 @@ func TestIsProcessRunning_NonexistentPID(t *testing.T) {
 		t.Error("non-existent PID should not be reported as running")
 	}
 }
+
+func TestResolveBackgroundBinaryPath_UsesDefaultWhenNoOverride(t *testing.T) {
+	got, err := resolveBackgroundBinaryPath(`C:\bin\oc-go-cc.exe`, "")
+	if err != nil {
+		t.Fatalf("resolveBackgroundBinaryPath() error = %v", err)
+	}
+	if got != `C:\bin\oc-go-cc.exe` {
+		t.Fatalf("resolveBackgroundBinaryPath() = %q, want %q", got, `C:\bin\oc-go-cc.exe`)
+	}
+}
+
+func TestResolveBackgroundBinaryPath_ResolvesOverride(t *testing.T) {
+	base := t.TempDir()
+	override := filepath.Join(base, "..", filepath.Base(base), "oc-go-cc.exe")
+	want, err := filepath.Abs(override)
+	if err != nil {
+		t.Fatalf("filepath.Abs() error = %v", err)
+	}
+
+	got, err := resolveBackgroundBinaryPath(`C:\bin\oc-go-cc.exe`, override)
+	if err != nil {
+		t.Fatalf("resolveBackgroundBinaryPath() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveBackgroundBinaryPath() = %q, want %q", got, want)
+	}
+}

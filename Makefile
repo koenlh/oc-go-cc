@@ -1,15 +1,20 @@
-.PHONY: build run test clean install dist lint vet
+.PHONY: build build-ui run test clean install dist lint vet
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS = -X main.version=$(VERSION)
 BINARY = oc-go-cc
 CMD = ./cmd/oc-go-cc
+UI_BINARY = oc-go-cc-ui
+UI_CMD = ./cmd/oc-go-cc-ui
 
 # ── Development ────────────────────────────────────────────────────
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(CMD)
+
+build-ui:
+	go build -ldflags "$(LDFLAGS)" -o bin/$(UI_BINARY) $(UI_CMD)
 
 run:
 	go run -ldflags "$(LDFLAGS)" $(CMD)

@@ -7,6 +7,7 @@
 - 你在 Windows 上开发或测试这个项目
 - 你的 PowerShell 没有 `make`
 - 你希望直接生成 `bin/oc-go-cc.exe` 或 `dist` 发布文件
+- 你希望额外生成一个可双击打开的控制面板 `bin/oc-go-cc-ui.exe`
 - 你希望在 Windows 上把 `oc-go-cc` 接到 Claude Code 使用
 
 ## 1. 前置要求
@@ -89,6 +90,42 @@ bin\oc-go-cc.exe
 ```powershell
 Get-Item .\bin\oc-go-cc.exe
 ```
+
+## 4.1 构建控制面板 UI
+
+如果你不想每次都手敲：
+
+- `serve`
+- `status`
+- `stop`
+
+现在可以额外构建一个本地控制面板程序 `oc-go-cc-ui.exe`。
+
+推荐直接使用仓库里新增的 PowerShell 脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1
+```
+
+构建成功后，产物在：
+
+```powershell
+bin\oc-go-cc-ui.exe
+```
+
+这个脚本默认会生成适合双击启动的 Windows GUI 程序，不会额外弹出控制台窗口。
+
+如果你想生成带控制台窗口的版本，便于观察标准输出，也可以这样执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1 -NoWindowGui
+```
+
+注意：
+
+- 最简单的用法是把 `oc-go-cc.exe` 和 `oc-go-cc-ui.exe` 放在同一个 `bin\` 目录下
+- 控制面板会优先寻找和自己同目录的 `oc-go-cc.exe`
+- 如果你的服务程序不在默认位置，可以启动 UI 时手动传 `--service-binary`
 
 ## 5. 运行项目测试
 
@@ -280,6 +317,50 @@ notepad $env:APPDATA\oc-go-cc\config.json
 
 ## 11. 启动代理
 
+### 11.1 使用控制面板启动和管理
+
+如果你更希望用图形界面，而不是命令行，直接运行：
+
+```powershell
+.\bin\oc-go-cc-ui.exe
+```
+
+启动后会自动打开一个本地浏览器页面。这个页面可以直接完成：
+
+- 启动服务
+- 停止服务
+- 查看当前运行状态和 PID
+- 查看日志文件的最新内容
+- 退出控制面板
+
+控制面板本身只是一个本地网页服务，不会把数据发到外部；它只调用本机上的 `oc-go-cc.exe`、PID 文件和日志文件。
+
+默认行为：
+
+- UI 会自动打开浏览器
+- 如果浏览器页面关闭且一段时间没有访问，控制面板进程会自动退出
+- 服务本身是否继续运行，取决于你有没有点击“停止服务”
+
+如果你不想自动打开浏览器，可以这样：
+
+```powershell
+.\bin\oc-go-cc-ui.exe --no-open
+```
+
+如果 `oc-go-cc.exe` 不在同目录，可以这样显式指定：
+
+```powershell
+.\bin\oc-go-cc-ui.exe --service-binary C:\project\oc-go-cc\bin\oc-go-cc.exe
+```
+
+如果你想让控制面板更久不自动退出，例如 30 分钟：
+
+```powershell
+.\bin\oc-go-cc-ui.exe --idle-timeout 30m
+```
+
+### 11.2 使用命令行启动代理
+
 前台启动：
 
 ```powershell
@@ -304,7 +385,7 @@ notepad $env:APPDATA\oc-go-cc\config.json
 .\bin\oc-go-cc.exe stop
 ```
 
-### 11.1 开启调试日志
+### 11.3 开启调试日志
 
 如果你要排查 Claude Code 到 `oc-go-cc` 的原始请求、转换后的上游请求，以及非流式上游响应预览，可以在配置里这样设置：
 
@@ -359,6 +440,12 @@ New-Item -ItemType Directory -Force -Path bin | Out-Null
 go build -ldflags "-X main.version=$version" -o bin/oc-go-cc.exe ./cmd/oc-go-cc
 ```
 
+构建控制面板：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1
+```
+
 运行核心测试：
 
 ```powershell
@@ -375,6 +462,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dist.ps1 -GoProxy direct
 
 ```powershell
 .\bin\oc-go-cc.exe serve
+```
+
+启动控制面板：
+
+```powershell
+.\bin\oc-go-cc-ui.exe
 ```
 
 ## 14. 常见问题
@@ -439,6 +532,16 @@ echo $env:ANTHROPIC_AUTH_TOKEN
 3. OpenCode Go 服务是否可达
 4. 你配置的 `claude_code.models` 或 `fallbacks` 是否填了不存在的 `model_id`
 
+### 14.6 控制面板打开了，但启动服务失败
+
+优先检查这几件事：
+
+1. `bin\oc-go-cc.exe` 是否真的存在
+2. `oc-go-cc-ui.exe` 是否和 `oc-go-cc.exe` 在同一个目录
+3. 如果不在同目录，是否传了 `--service-binary`
+4. 配置文件是否已经初始化并且 `OC_GO_CC_API_KEY` 可用
+5. 日志面板里有没有更具体的错误信息
+
 ## 15. 推荐的 Windows 使用流程
 
 如果你只是想尽快用起来，按下面顺序做：
@@ -446,16 +549,17 @@ echo $env:ANTHROPIC_AUTH_TOKEN
 1. 安装 Go：`winget install GoLang.Go`
 2. 设置代理源：`go env -w GOPROXY direct`
 3. 构建：生成 `bin\oc-go-cc.exe`
-4. 执行 `oc-go-cc.exe init`
-5. 设置 `OC_GO_CC_API_KEY`
-6. 修改 `config.json` 中的 `claude_code.models`
-7. 执行 `oc-go-cc.exe validate`
-8. 执行 `oc-go-cc.exe serve`
-9. 设置 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`
-10. 启动 `claude`
+4. 可选：执行 `powershell -ExecutionPolicy Bypass -File .\scripts\build-ui.ps1`
+5. 执行 `oc-go-cc.exe init`
+6. 设置 `OC_GO_CC_API_KEY`
+7. 修改 `config.json` 中的 `claude_code.models`
+8. 执行 `oc-go-cc.exe validate`
+9. 二选一：执行 `oc-go-cc.exe serve`，或者直接运行 `oc-go-cc-ui.exe` 后点击“启动服务”
+10. 设置 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`
+11. 启动 `claude`
 
 如果你要发版，再额外执行：
 
-11. `powershell -ExecutionPolicy Bypass -File .\scripts\dist.ps1 -GoProxy direct`
+12. `powershell -ExecutionPolicy Bypass -File .\scripts\dist.ps1 -GoProxy direct`
 
 这套流程已经覆盖了 Windows 下最常见的构建、配置、启动和排障路径。
